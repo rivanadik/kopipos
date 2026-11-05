@@ -1,0 +1,6 @@
+{
+  "files.associations": { "*.php": "php" },
+  "editor.tabSize": 4,
+  "files.encoding": "utf8",
+  "intelephense.environment.phpVersion": "8.0.0"
+}

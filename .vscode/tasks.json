@@ -1,0 +1,14 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Jalankan Kasir POS (php -S localhost:8000)",
+      "type": "shell",
+      "command": "php -S localhost:8000",
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true }
+    }
+  ]
+}

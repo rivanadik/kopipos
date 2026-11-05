@@ -1,0 +1,21 @@
+# ---- Kasir POS: pengaturan Apache ----
+Options -Indexes
+DirectoryIndex index.php
+
+# Blokir akses langsung ke file sensitif
+<FilesMatch "^(config\.php|database\.sql|README\.md|\.env)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>
+
+# (Opsional) paksa HTTPS di hosting. Hapus tanda # setelah SSL aktif.
+# <IfModule mod_rewrite.c>
+#   RewriteEngine On
+#   RewriteCond %{HTTPS} off
+#   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+# </IfModule>
