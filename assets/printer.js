@@ -348,6 +348,67 @@
       return L;
     },
 
+    /* ---------- Kirim struk ke WhatsApp (link wa.me, tanpa API) ---------- */
+    waPhone(raw) {
+      let d = String(raw || '').replace(/\D+/g, '');
+      if (!d) return '';
+      if (d.startsWith('00')) d = d.slice(2);
+      else if (d.startsWith('0')) d = '62' + d.slice(1);
+      else if (d.startsWith('8')) d = '62' + d;
+      return d.length >= 9 && d.length <= 15 ? d : '';
+    },
+
+    // Versi ringkas struk untuk chat (tanpa kolom rata-kanan agar rapi di layar HP)
+    waText(data, s) {
+      const t = data.trx || {};
+      const on = k => String(s[k]) === '1';
+      const rp = n => 'Rp ' + num(n);
+      const bar = '------------------------';
+      const L = [];
+      L.push('*' + String(s.store_name || 'Toko') + '*');
+      if (on('show_address') && String(s.store_address || '').trim()) L.push(s.store_address);
+      if (on('show_phone') && String(s.store_phone || '').trim()) L.push('Telp ' + s.store_phone);
+      if (String(s.header_note || '').trim()) L.push(s.header_note);
+      L.push(bar);
+      if (on('show_queue') && t.queue) L.push('Nomor antrian: *' + t.queue + '*');
+      if (on('show_order_type') && t.orderType) L.push(t.orderType + (t.orderType === 'Dine In' && t.tableNo ? ' - Meja ' + t.tableNo : ''));
+      if (on('show_customer') && t.customer) L.push('Nama: ' + t.customer);
+      if (on('show_no')) L.push('No: ' + t.no);
+      if (on('show_date')) L.push('Tanggal: ' + t.date);
+      if (on('show_shift')) L.push('Shift: ' + t.shift);
+      if (on('show_cashier')) L.push('Kasir: ' + t.cashier);
+      L.push(bar);
+      (data.items || []).forEach(i => {
+        L.push(i.name);
+        L.push('   ' + i.qty + ' x ' + num(i.price) + ' = ' + num(i.price * i.qty));
+        if (on('show_item_disc') && Number(i.disc) > 0) L.push('   Disc' + (i.dname ? ' ' + i.dname : '') + ': -' + num(i.disc * i.qty));
+      });
+      L.push(bar);
+      L.push('Subtotal: ' + rp(t.gross));
+      if (Number(t.autoDisc) > 0) L.push('Diskon: -' + rp(t.autoDisc));
+      if (Number(t.couponDisc) > 0) L.push('Kupon ' + (t.coupon || '') + ': -' + rp(t.couponDisc));
+      L.push('*TOTAL: ' + rp(t.total) + '*');
+      if (on('show_payment')) {
+        L.push('Bayar (' + (t.method || 'Tunai') + '): ' + rp(t.paid));
+        if ((t.method || 'Tunai') === 'Tunai') L.push('Kembali: ' + rp(t.change));
+      }
+      L.push(bar);
+      if (String(s.footer || '').trim()) L.push(s.footer);
+      if (String(s.footer2 || '').trim()) L.push(s.footer2);
+      return L.join('\n');
+    },
+
+    sendWhatsApp(data, rawPhone) {
+      const p = this.waPhone(rawPhone);
+      if (!p) { toast('Isi nomor WhatsApp yang valid (contoh 0812xxxxxxx)', true); return false; }
+      const url = 'https://wa.me/' + p + '?text=' + encodeURIComponent(this.waText(data, data.settings || {}));
+      const a = document.createElement('a');
+      a.href = url; a.target = '_blank'; a.rel = 'noopener';
+      document.body.appendChild(a); a.click(); a.remove();
+      toast('Membuka WhatsApp...');
+      return true;
+    },
+
     html(lines, s) {
       const esc = x => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       return `<div class="paper" style="--w:${this.width(s)}">` + lines.map(l =>
@@ -478,6 +539,8 @@
       this._cur = payload;
       document.getElementById('rcpt-modal').classList.remove('hidden');
       this._renderModal();
+      const wa = document.getElementById('rcpt-wa-phone');
+      if (wa) wa.value = (payload.trx && payload.trx.phone) || '';
       const s = payload.settings;
       if (opt.autoPrint && String(s.auto_print) === '1') {
         if (Printer.isReady()) this.print(payload, s).then(() => this._modalStatus('Struk sudah dicetak')).catch(() => this._modalStatus());
@@ -552,6 +615,11 @@
         if (Receipt._cur) Receipt.print(Receipt._cur, Receipt._cur.settings).then(m => { if (m === 'thermal') Receipt._modalStatus('Struk sudah dicetak'); }).catch(() => {});
       });
       document.addEventListener('keydown', e => { if (e.key === 'Escape' && !modal.classList.contains('hidden')) Receipt.hide(); });
+      const waBtn = document.getElementById('rcpt-wa-send'), waIn = document.getElementById('rcpt-wa-phone');
+      if (waBtn) {
+        waBtn.addEventListener('click', () => { if (Receipt._cur) Receipt.sendWhatsApp(Receipt._cur, waIn.value); });
+        waIn.addEventListener('keydown', e => { if (e.key === 'Enter' && Receipt._cur) Receipt.sendWhatsApp(Receipt._cur, waIn.value); });
+      }
     }
 
     const clock = document.getElementById('clock');

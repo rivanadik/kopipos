@@ -31,6 +31,74 @@ function q(string $sql, array $p = []): PDOStatement
     return $s;
 }
 
+/* ================= BATAS ANGKA & SKEMA ================= */
+// Batas wajar untuk stok / harga / jumlah yang diinput (1 triliun). Di atas ini ditolak dengan pesan,
+// bukan error database. Kolom stok sudah dilebarkan (BIGINT / DECIMAL(20,2)) agar jutaan-miliaran aman.
+const MAX_NUM = 1000000000000.0;
+function num_too_big(float $v): bool { return !is_finite($v) || abs($v) > MAX_NUM; }
+function num_limit_msg(string $label): string
+{
+    return 'Angka "' . $label . '" terlalu besar (maksimal ' . number_format(MAX_NUM, 0, ',', '.') . ')';
+}
+
+// Nomor WhatsApp -> format internasional tanpa +/spasi (08xx -> 628xx). '' jika tidak valid.
+function wa_normalize(string $raw): string
+{
+    $d = preg_replace('/\D+/', '', $raw);
+    if ($d === '') return '';
+    if (strncmp($d, '00', 2) === 0) $d = substr($d, 2);
+    elseif ($d[0] === '0') $d = '62' . substr($d, 1);
+    elseif ($d[0] === '8') $d = '62' . $d;
+    return strlen($d) >= 9 && strlen($d) <= 15 ? $d : '';
+}
+
+// Migrasi skema otomatis & aman diulang (dijalankan sekali; ditandai di tabel settings).
+function ensure_schema(): void
+{
+    try {
+        if ((int)setting('schema_v', '1') >= 2) return;
+        if (!empty($_SESSION['schema_tried'])) return;   // gagal sebelumnya (mis. user DB tanpa hak ALTER): jangan ulang tiap request
+        $_SESSION['schema_tried'] = 1;
+        $pdo = db();
+        $hasCol = function (string $t, string $c) use ($pdo): bool {
+            $s = $pdo->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?");
+            $s->execute([$t, $c]);
+            return (int)$s->fetchColumn() > 0;
+        };
+        $sql = [];
+        if (!$hasCol('transactions', 'customer_phone')) {
+            $sql[] = "ALTER TABLE transactions ADD COLUMN customer_phone VARCHAR(20) NULL AFTER customer_name";
+        }
+        // Stok boleh sampai miliaran (sebelumnya INT = maks ±2,1 miliar dan DECIMAL(14,2))
+        $sql[] = "ALTER TABLE products MODIFY stock BIGINT NOT NULL DEFAULT 0, MODIFY min_stock BIGINT NOT NULL DEFAULT 5";
+        $sql[] = "ALTER TABLE materials MODIFY pack_size DECIMAL(20,2) NOT NULL DEFAULT 1 COMMENT 'isi per kemasan beli',
+            MODIFY stock DECIMAL(20,2) NOT NULL DEFAULT 0 COMMENT 'dalam satuan unit',
+            MODIFY min_stock DECIMAL(20,2) NOT NULL DEFAULT 0";
+        $sql[] = "ALTER TABLE recipes MODIFY qty DECIMAL(20,2) NOT NULL";
+        $sql[] = "ALTER TABLE stock_logs MODIFY change_qty DECIMAL(20,2) NOT NULL, MODIFY stock_after DECIMAL(20,2) NOT NULL";
+        $sql[] = "ALTER TABLE transaction_items MODIFY qty BIGINT UNSIGNED NOT NULL";
+        $ok = true;
+        foreach ($sql as $s) {
+            try { $pdo->exec($s); }
+            catch (Throwable $e) { $ok = false; error_log('ensure_schema: ' . $e->getMessage()); }
+        }
+        if ($ok) setting_save(['schema_v' => '2']);
+    } catch (Throwable $e) {
+        error_log('ensure_schema: ' . $e->getMessage());
+    }
+}
+// Apakah kolom nomor WhatsApp sudah ada? (dicek sekali per request)
+function trx_has_phone(): bool
+{
+    static $v = null;
+    if ($v === null) {
+        try { $v = (bool)db()->query("SHOW COLUMNS FROM transactions LIKE 'customer_phone'")->fetch(); }
+        catch (Throwable $e) { $v = false; }
+    }
+    return $v;
+}
+
 /* ================= FORMAT ================= */
 function e($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 function rp($n): string { return ($n < 0 ? '-' : '') . 'Rp ' . number_format(abs((float)$n), 0, ',', '.'); }
@@ -315,7 +383,7 @@ function calc_cart(array $cart, string $code, bool $lock = false): array
         $p = $st->fetch();
         if (!$p) continue;
         if ($p['track_stock'] && $qty > (int)$p['stock'] && $stockErr === '') {
-            $stockErr = (int)$p['stock'] <= 0 ? "Stok {$p['name']} habis" : "Stok {$p['name']} tinggal " . (int)$p['stock'];
+            $stockErr = (int)$p['stock'] <= 0 ? "Stok {$p['name']} habis" : "Stok {$p['name']} tinggal " . num($p['stock']);
         }
         $price = (float)$p['price'];
         $d = best_disc($p);
@@ -384,6 +452,7 @@ function trx_payload(int $id): ?array
         'trx' => [
             'id' => (int)$t['id'], 'no' => $t['no'], 'date' => fmt_dt($t['created_at']),
             'queue' => (int)$t['queue_no'], 'customer' => (string)$t['customer_name'],
+            'phone' => (string)($t['customer_phone'] ?? ''),
             'orderType' => $t['order_type'], 'tableNo' => (string)$t['table_no'],
             'shift' => $t['shift_name'], 'cashier' => $t['cashier_name'],
             'gross' => (float)$t['gross'], 'autoDisc' => (float)$t['auto_disc'],
@@ -433,3 +502,5 @@ function csv_out(string $filename, array $head, array $rows): void
     fclose($out);
     exit;
 }
+
+ensure_schema();

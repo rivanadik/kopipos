@@ -3,9 +3,13 @@
  | CRUD generik. Dipanggil dari halaman yang mengisi $cfg:
  |   title, table, intro?, where?, order?, fields, cols,
  |   before_save?(array $data, int $id): array|string  (string = pesan error)
+ |   after_save?(array $data, int $id, ?array $old): void  (dipanggil setelah berhasil simpan; $old = baris lama / null jika baru)
+ |   before_delete?(int $id): ?string  (string = alasan tidak boleh dihapus)
+ |   delete_confirm?(array $row): string  (teks konfirmasi hapus kustom)
+ |   confirm_edit?: bool  (true = saat Simpan Ubah, tampilkan konfirmasi nilai lama -> baru)
  |   row_actions?(array $row): string   top_html?: string   no_delete?: bool
  | Format field: [nama, label, tipe, opsi?, default?, wajib?]
- |   tipe: text | int | dec | check | password | date | time | select | fk (select, '' -> NULL)
+ |   tipe: text | int | dec | check | password | date | time | select | fk (select, '' -> NULL) | hidden (input tersembunyi berisi nilai baris sekarang)
  */
 $tbl = $cfg['table'];
 $where = $cfg['where'] ?? '1=1';
@@ -21,8 +25,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
 
     if ($act === 'delete' && empty($cfg['no_delete'])) {
         $id = (int)$_POST['id'];
+        $block = isset($cfg['before_delete']) ? $cfg['before_delete']($id) : null;
         if ($tbl === 'users' && $id === (int)me()['id']) {
             flash_set('Akun yang sedang dipakai tidak dapat dihapus', 'err');
+        } elseif (is_string($block) && $block !== '') {
+            flash_set($block, 'err');
         } else {
             try {
                 db()->prepare("DELETE FROM `$tbl` WHERE id=?")->execute([$id]);
@@ -51,6 +58,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
                 case 'fk': $v = $raw === '' ? null : (int)$raw; break;
                 default: $v = $name === 'code' ? strtoupper($raw) : $raw;
             }
+            if (($type === 'int' || $type === 'dec') && num_too_big((float)$v)) {
+                flash_set(num_limit_msg($label), 'err');
+                redirect($back);
+            }
             if (!empty($f[5]) && ($v === '' || $v === null)) {
                 flash_set('Kolom "' . $label . '" wajib diisi', 'err');
                 redirect($back);
@@ -65,6 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
             if (is_string($res)) { flash_set($res, 'err'); redirect($back); }
             $data = $res;
         }
+        $oldRow = $id ? (q("SELECT * FROM `$tbl` WHERE id=?", [$id])->fetch() ?: null) : null;
         try {
             if ($id) {
                 $sets = implode(',', array_map(fn($k) => "`$k`=?", array_keys($data)));
@@ -75,11 +87,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
                 $cols = implode(',', array_map(fn($k) => "`$k`", array_keys($data)));
                 $qs = implode(',', array_fill(0, count($data), '?'));
                 db()->prepare("INSERT INTO `$tbl` ($cols) VALUES ($qs)")->execute(array_values($data));
+                $id = (int)db()->lastInsertId();
             }
         } catch (PDOException $ex) {
-            flash_set($ex->getCode() === '23000' ? 'Data sudah ada (nama/kode tidak boleh kembar)' : 'Gagal menyimpan data', 'err');
+            error_log('crud ' . $tbl . ': ' . $ex->getMessage());
+            flash_set($ex->getCode() === '23000' ? 'Data sudah ada (nama/kode tidak boleh kembar)' : 'Gagal menyimpan data. Cek angka tidak terlalu besar.', 'err');
             redirect($back);
         }
+        if (isset($cfg['after_save'])) $cfg['after_save']($data, $id, $oldRow);
         flash_set('Data tersimpan');
         redirect($base);
     }
@@ -103,7 +118,7 @@ $editRow = $editId ? (q("SELECT * FROM `$tbl` WHERE id=?", [$editId])->fetch() ?
 <?php if ($isNew || $editRow): ?>
 <div class="card pad form-card">
   <h3 class="cardh2"><?= $editRow ? 'Ubah' : 'Tambah' ?> <?= e($cfg['title']) ?></h3>
-  <form method="post" action="<?= $base ?>">
+  <form method="post" action="<?= $base ?>" id="crud-form"<?= ($editRow && !empty($cfg['confirm_edit'])) ? ' data-confirm-edit="1"' : '' ?>>
     <?= csrf_field() ?>
     <input type="hidden" name="action" value="save">
     <input type="hidden" name="id" value="<?= $editRow ? (int)$editRow['id'] : 0 ?>">
@@ -115,7 +130,9 @@ $editRow = $editId ? (q("SELECT * FROM `$tbl` WHERE id=?", [$editId])->fetch() ?
       $v = $editRow ? ($editRow[$name] ?? '') : $def;
       $id = 'f_' . $name;
     ?>
-      <?php if ($type === 'check'): ?>
+      <?php if ($type === 'hidden'): ?>
+        <input type="hidden" name="<?= $id ?>" value="<?= e($editRow ? ($editRow[$name] ?? '') : $def) ?>">
+      <?php elseif ($type === 'check'): ?>
         <div class="fg full"><label class="check"><input type="checkbox" name="<?= $id ?>" value="1" <?= $v ? 'checked' : '' ?>> <?= e($label) ?></label></div>
       <?php else: ?>
         <div class="fg"><label class="lbl" for="<?= $id ?>"><?= e($label) ?><?= !empty($f[5]) ? ' *' : '' ?></label>
@@ -147,6 +164,25 @@ $editRow = $editId ? (q("SELECT * FROM `$tbl` WHERE id=?", [$editId])->fetch() ?
   </form>
 </div>
 <?php endif; ?>
+<?php if ($editRow && !empty($cfg['confirm_edit'])): ?>
+<script>
+(function () {
+  const f = document.getElementById('crud-form');
+  if (!f) return;
+  const fields = [...f.querySelectorAll('[name^="f_"]')].filter(el => el.type !== 'hidden');
+  const val = el => el.type === 'checkbox' ? (el.checked ? 'Aktif' : 'Nonaktif')
+    : el.tagName === 'SELECT' ? el.selectedOptions[0].text : el.value.trim();
+  const orig = new Map(fields.map(el => [el, val(el)]));
+  const label = el => { const l = f.querySelector('label[for="' + el.id + '"]'); return (l ? l.textContent : el.closest('label').textContent).replace('*', '').trim(); };
+  f.addEventListener('submit', e => {
+    const ch = fields.filter(el => val(el) !== orig.get(el));
+    if (!ch.length) { e.preventDefault(); alert('Tidak ada yang diubah.'); return; }
+    const msg = 'Yakin mengubah data ini?\n\n' + ch.map(el => '• ' + label(el) + ': ' + (orig.get(el) || '(kosong)') + '  →  ' + (val(el) || '(kosong)')).join('\n');
+    if (!confirm(msg)) e.preventDefault();
+  });
+})();
+</script>
+<?php endif; ?>
 
 <div class="card">
 <div class="tscroll">
@@ -168,7 +204,7 @@ $editRow = $editId ? (q("SELECT * FROM `$tbl` WHERE id=?", [$editId])->fetch() ?
         <?= isset($cfg['row_actions']) ? $cfg['row_actions']($r) : '' ?>
         <a class="btn btn-sm" href="<?= $base ?>&edit=<?= (int)$r['id'] ?>">Ubah</a>
         <?php if (empty($cfg['no_delete'])): ?>
-        <form method="post" action="<?= $base ?>" class="inline" onsubmit="return confirm('Hapus data ini?')">
+        <form method="post" action="<?= $base ?>" class="inline" onsubmit="return confirm(<?= e(json_encode(isset($cfg['delete_confirm']) ? $cfg['delete_confirm']($r) : 'Hapus data ini?', JSON_UNESCAPED_UNICODE)) ?>)">
           <?= csrf_field() ?>
           <input type="hidden" name="action" value="delete">
           <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">

@@ -388,6 +388,20 @@ HPP setiap item **disimpan saat transaksi terjadi**, jadi laporan laba bulan lal
 Peringatan muncul saat stok ≤ **batas stok menipis** (diatur per produk dan per bahan) di dashboard, menu Stok Opname
 (angka kuning di menu), dan kartu produk di kasir.
 
+### Kirim struk ke WhatsApp
+Selain dicetak, struk bisa dikirim ke WhatsApp pelanggan (tanpa API / biaya, memakai link `wa.me`):
+1. Di halaman kasir, isi kolom **No. WhatsApp pelanggan** (opsional, boleh `0812...` atau `+62812...`).
+2. Setelah bayar, di preview struk klik **Kirim ke WhatsApp**. WhatsApp (aplikasi atau WhatsApp Web) terbuka dengan teks struk
+   siap kirim; kasir tinggal menekan Kirim.
+3. Lupa mengisi nomor? Ketik di kotak nomor pada preview struk. Dari **Riwayat Nota** / **Laporan Nota** juga bisa
+   (klik nota → isi nomor → kirim).
+Fitur ini **tidak mengubah** cetak struk yang ada. Isi pesan mengikuti pengaturan *Customize Struk* (nama toko, alamat, footer, dll.).
+Nomor pelanggan hanya tampil di layar kasir dan tidak dicetak di struk kertas.
+
+### Stok besar (jutaan sampai miliaran)
+Kolom stok memakai `BIGINT` / `DECIMAL(20,2)` sehingga angka jutaan-miliaran tidak error. Batas input 1.000.000.000.000
+(1 triliun); lebih dari itu ditolak dengan pesan yang jelas, bukan error database. Angka di layar memakai pemisah ribuan.
+
 ### Transparansi cetak struk
 - Setiap kali struk dicetak, sistem mencatat **waktu, cetakan ke berapa, cara cetak, perangkat, dan akun**.
 - Struk salinan otomatis bertuliskan **"CETAK ULANG KE-n"**.
@@ -437,16 +451,19 @@ kasir-pos-php/
 | `discounts`, `coupons` | Diskon otomatis dan kupon |
 | `expenses` | Beban operasional |
 | `shift_configs`, `shifts` | Jadwal shift dan riwayat buka/tutup shift |
-| `transactions` | Nota: antrian, pelanggan, tipe, total, HPP, metode, jumlah cetak |
+| `transactions` | Nota: antrian, pelanggan (+ no. WhatsApp), tipe, total, HPP, metode, jumlah cetak |
 | `transaction_items` | Item per nota beserta HPP saat terjual |
 | `print_logs` | Riwayat setiap cetakan struk |
 | `settings` | Pengaturan toko, struk, dan kasir |
 
 ### Memperbarui dari versi sebelumnya
-Struktur database versi ini berubah. Jika sebelumnya sudah memasang versi lama:
+**Dari versi sebelum fitur WhatsApp & stok besar (v2) — data TIDAK dihapus:**
 1. Backup dulu (phpMyAdmin → Export).
-2. Import `database.sql` yang baru. **Semua data lama akan terhapus**, karena file ini membuat ulang tabel.
-3. Timpa file aplikasi kecuali `config.php`.
+2. Timpa file aplikasi kecuali `config.php`.
+3. Buka aplikasi seperti biasa. Migrasi database berjalan **otomatis** satu kali (menambah kolom no. WhatsApp dan
+   melebarkan kolom stok). Jika user database tidak punya hak `ALTER`, jalankan `migrasi-v2.sql` manual lewat phpMyAdmin.
+
+**Instalasi baru / ingin mengosongkan data:** import `database.sql`. **Semua data lama akan terhapus**, karena file ini membuat ulang tabel.
 
 ---
 

@@ -67,6 +67,10 @@ $sh = is_admin() ? null : active_shift();
     <div class="mh"><h3>Preview Struk</h3><button class="x" type="button" data-close>&times;</button></div>
     <div class="mb rcpt-body">
       <div id="rcpt-status" class="rcpt-status"></div>
+      <div class="wa-box" id="rcpt-wa">
+        <input id="rcpt-wa-phone" type="tel" inputmode="tel" maxlength="20" placeholder="No. WhatsApp pelanggan, mis. 0812xxxxxxx" autocomplete="off">
+        <button class="btn btn-wa" type="button" id="rcpt-wa-send">Kirim ke WhatsApp</button>
+      </div>
       <div id="rcpt-paper"></div>
       <div id="rcpt-history" class="print-history"></div>
     </div>

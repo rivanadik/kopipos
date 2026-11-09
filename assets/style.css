@@ -399,3 +399,14 @@ tfoot td { background: #f8fafc; border-top: 2px solid var(--line); }
 
 /* angka & nomor nota tidak terpotong ke baris baru */
 td.right, td.mono, th.right { white-space: nowrap; }
+
+/* ---------- angka stok besar (jutaan-miliaran) ---------- */
+.pstock { max-width: calc(100% - 16px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.big-num { font-variant-numeric: tabular-nums; word-break: break-all; }
+td.right b.big-num { white-space: nowrap; }
+
+/* ---------- kirim struk ke WhatsApp ---------- */
+.wa-box { display: flex; gap: 8px; margin-bottom: 12px; }
+.wa-box input { flex: 1; min-width: 0; }
+.btn-wa { background: #16a34a; border-color: #16a34a; color: #fff; white-space: nowrap; }
+.btn-wa:hover { background: #15803d; border-color: #15803d; }

@@ -8,30 +8,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $admin) {
     $id = (int)($_POST['id'] ?? 0);
     $tbl = $type === 'material' ? 'materials' : 'products';
     $pdo = db();
-    $pdo->beginTransaction();
-    $row = q("SELECT * FROM `$tbl` WHERE id=? FOR UPDATE", [$id])->fetch();
-    if (!$row || ($type === 'product' && !$row['track_stock'])) {
-        $pdo->rollBack();
-        flash_set('Item tidak ditemukan atau stoknya tidak dihitung manual', 'err');
+    try {
+        $pdo->beginTransaction();
+        $row = q("SELECT * FROM `$tbl` WHERE id=? FOR UPDATE", [$id])->fetch();
+        if (!$row || ($type === 'product' && !$row['track_stock'])) {
+            $pdo->rollBack();
+            flash_set('Item tidak ditemukan atau stoknya tidak dihitung manual', 'err');
+            redirect('index.php?page=stok');
+        }
+        $cur = (float)$row['stock'];
+        $note = trim((string)($_POST['note'] ?? ''));
+        if (($_POST['action'] ?? '') === 'opname') {
+            $actual = (float)str_replace(',', '.', (string)($_POST['actual'] ?? ''));
+            if (($_POST['actual'] ?? '') === '' || $actual < 0) { $pdo->rollBack(); flash_set('Isi jumlah stok fisik', 'err'); redirect('index.php?page=stok'); }
+            if (num_too_big($actual)) { $pdo->rollBack(); flash_set(num_limit_msg('Stok fisik'), 'err'); redirect('index.php?page=stok'); }
+            $change = $actual - $cur;
+            $reason = 'opname';
+            $note = $note !== '' ? $note : 'Stok opname: sistem ' . num($cur) . ', fisik ' . num($actual);
+        } else {
+            $change = (float)($_POST['delta'] ?? 0);
+            if (num_too_big($change)) { $pdo->rollBack(); flash_set(num_limit_msg('Penyesuaian stok'), 'err'); redirect('index.php?page=stok'); }
+            $reason = $change > 0 ? 'masuk' : 'koreksi';
+        }
+        $after = $type === 'product' ? (int)round($cur + $change) : $cur + $change;
+        if (num_too_big((float)$after)) { $pdo->rollBack(); flash_set(num_limit_msg('Stok akhir'), 'err'); redirect('index.php?page=stok'); }
+        if ($type === 'product' && $after < 0) { $pdo->rollBack(); flash_set('Stok tidak boleh minus', 'err'); redirect('index.php?page=stok'); }
+        q("UPDATE `$tbl` SET stock=? WHERE id=?", [$after, $id]);
+        if (abs($change) > 0.0001) stock_log($type, $id, $change, $after, $reason, $note);
+        $pdo->commit();
+    } catch (PDOException $ex) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('stok: ' . $ex->getMessage());
+        flash_set('Stok gagal disimpan. Pastikan angka tidak terlalu besar dan database sudah dimigrasi.', 'err');
         redirect('index.php?page=stok');
     }
-    $cur = (float)$row['stock'];
-    $note = trim((string)($_POST['note'] ?? ''));
-    if (($_POST['action'] ?? '') === 'opname') {
-        $actual = (float)str_replace(',', '.', (string)($_POST['actual'] ?? ''));
-        if (($_POST['actual'] ?? '') === '' || $actual < 0) { $pdo->rollBack(); flash_set('Isi jumlah stok fisik', 'err'); redirect('index.php?page=stok'); }
-        $change = $actual - $cur;
-        $reason = 'opname';
-        $note = $note !== '' ? $note : 'Stok opname: sistem ' . num($cur) . ', fisik ' . num($actual);
-    } else {
-        $change = (float)($_POST['delta'] ?? 0);
-        $reason = $change > 0 ? 'masuk' : 'koreksi';
-    }
-    $after = $type === 'product' ? (int)round($cur + $change) : $cur + $change;
-    if ($type === 'product' && $after < 0) { $pdo->rollBack(); flash_set('Stok tidak boleh minus', 'err'); redirect('index.php?page=stok'); }
-    q("UPDATE `$tbl` SET stock=? WHERE id=?", [$after, $id]);
-    if (abs($change) > 0.0001) stock_log($type, $id, $change, $after, $reason, $note);
-    $pdo->commit();
     flash_set($row['name'] . ': stok ' . num($cur) . ' → ' . num($after));
     redirect('index.php?page=stok' . ($type === 'material' ? '#bahan' : ''));
 }
@@ -71,8 +81,8 @@ function opname_form(string $type, array $r, string $unit): string
 <div class="alert warn alert-list">
   <b>⚠ <?= $low['count'] ?> item stok menipis / habis</b>
   <ul>
-    <?php foreach ($low['products'] as $p): ?><li><?= e($p['name']) ?>: <b><?= (int)$p['stock'] ?> porsi</b> (batas <?= (int)$p['min_stock'] ?>)</li><?php endforeach; ?>
-    <?php foreach ($low['recipe'] as $p): ?><li><?= e($p['name']) ?>: bahan cukup untuk <b>± <?= (int)$p['stock'] ?> porsi</b></li><?php endforeach; ?>
+    <?php foreach ($low['products'] as $p): ?><li><?= e($p['name']) ?>: <b><?= num($p['stock']) ?> porsi</b> (batas <?= num($p['min_stock']) ?>)</li><?php endforeach; ?>
+    <?php foreach ($low['recipe'] as $p): ?><li><?= e($p['name']) ?>: bahan cukup untuk <b>± <?= num($p['stock']) ?> porsi</b></li><?php endforeach; ?>
     <?php foreach ($low['materials'] as $m): ?><li><?= e($m['name']) ?>: <b><?= num($m['stock']) ?> <?= e($m['unit']) ?></b> (batas <?= num($m['min_stock']) ?>)</li><?php endforeach; ?>
   </ul>
 </div>
@@ -93,7 +103,7 @@ function opname_form(string $type, array $r, string $unit): string
         <td><b><?= e($p['name']) ?></b></td>
         <td><?= e($cats[(int)$p['category_id']] ?? '-') ?></td>
         <td class="muted sm"><?= $isTrack ? 'Stok porsi manual' : ($a !== null ? 'Dari stok bahan (resep)' : 'Tidak dihitung') ?></td>
-        <td class="right"><b class="big-num"><?= $val === null ? '-' : ($isTrack ? '' : '± ') . $val ?></b> <?= $val === null ? '' : 'porsi' ?></td>
+        <td class="right"><b class="big-num"><?= $val === null ? '-' : ($isTrack ? '' : '± ') . num($val) ?></b> <?= $val === null ? '' : 'porsi' ?></td>
         <td><?= $val === null ? '<span class="badge b-off">-</span>' : stock_badge((float)$val, (float)$p['min_stock']) ?></td>
         <?php if ($admin): ?><td><?= $isTrack ? opname_form('product', $p, 'porsi') : '<span class="muted sm">Atur lewat stok bahan</span>' ?></td><?php endif; ?>
       </tr>

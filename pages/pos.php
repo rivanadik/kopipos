@@ -49,8 +49,8 @@ $hasUncat = (bool)array_filter($prods, fn($p) => !isset($catName[(int)$p['catego
         $stockChip = '';
         if ($stock !== null) {
             if ($stock <= 0) $stockChip = '<em class="pstock out">' . ($track ? 'Habis' : 'Bahan habis') . '</em>';
-            elseif ($stock <= $min) $stockChip = '<em class="pstock low">' . ($track ? 'Sisa ' . $stock : 'Bahan menipis') . '</em>';
-            elseif ($track) $stockChip = '<em class="pstock">Stok ' . $stock . '</em>';
+            elseif ($stock <= $min) $stockChip = '<em class="pstock low">' . ($track ? 'Sisa ' . num($stock) : 'Bahan menipis') . '</em>';
+            elseif ($track) $stockChip = '<em class="pstock">Stok ' . num($stock) . '</em>';
         }
       ?>
         <button type="button" class="pc<?= $out ? ' sold-out' : '' ?>" data-id="<?= (int)$p['id'] ?>"
@@ -88,6 +88,9 @@ $hasUncat = (bool)array_filter($prods, fn($p) => !isset($catName[(int)$p['catego
       <div class="cust-row">
         <input id="custName" maxlength="60" placeholder="Nama pelanggan<?= setting('require_customer', '1') === '1' ? ' *' : '' ?>" autocomplete="off">
         <input id="tableNo" maxlength="10" placeholder="No. meja" autocomplete="off">
+      </div>
+      <div class="cust-row">
+        <input id="custPhone" type="tel" inputmode="tel" maxlength="20" placeholder="No. WhatsApp pelanggan (opsional)" autocomplete="off">
       </div>
     </div>
     <div class="cart-items" id="items"></div>

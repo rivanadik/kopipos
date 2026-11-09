@@ -62,8 +62,8 @@ CREATE TABLE products (
   price       BIGINT       NOT NULL DEFAULT 0,
   image       VARCHAR(255) NULL,
   track_stock TINYINT(1)   NOT NULL DEFAULT 0,
-  stock       INT          NOT NULL DEFAULT 0,
-  min_stock   INT          NOT NULL DEFAULT 5,
+  stock       BIGINT       NOT NULL DEFAULT 0,
+  min_stock   BIGINT       NOT NULL DEFAULT 5,
   active      TINYINT(1)   NOT NULL DEFAULT 1,
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_prod_cat FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
@@ -98,11 +98,11 @@ CREATE TABLE materials (
   id        INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name      VARCHAR(120) NOT NULL,
   unit      ENUM('gram','ml','pcs') NOT NULL DEFAULT 'gram',
-  pack_size DECIMAL(12,2) NOT NULL DEFAULT 1 COMMENT 'isi per kemasan beli',
+  pack_size DECIMAL(20,2) NOT NULL DEFAULT 1 COMMENT 'isi per kemasan beli',
   price_old BIGINT       NOT NULL DEFAULT 0 COMMENT 'harga beli per kemasan sebelumnya',
   price     BIGINT       NOT NULL DEFAULT 0 COMMENT 'harga beli per kemasan terbaru',
-  stock     DECIMAL(14,2) NOT NULL DEFAULT 0 COMMENT 'dalam satuan unit',
-  min_stock DECIMAL(14,2) NOT NULL DEFAULT 0,
+  stock     DECIMAL(20,2) NOT NULL DEFAULT 0 COMMENT 'dalam satuan unit',
+  min_stock DECIMAL(20,2) NOT NULL DEFAULT 0,
   active    TINYINT(1)   NOT NULL DEFAULT 1
 ) ENGINE=InnoDB;
 
@@ -111,7 +111,7 @@ CREATE TABLE recipes (
   id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   product_id  INT UNSIGNED NOT NULL,
   material_id INT UNSIGNED NOT NULL,
-  qty         DECIMAL(12,2) NOT NULL,
+  qty         DECIMAL(20,2) NOT NULL,
   UNIQUE KEY uq_recipe (product_id, material_id),
   CONSTRAINT fk_rec_prod FOREIGN KEY (product_id)  REFERENCES products(id)  ON DELETE CASCADE,
   CONSTRAINT fk_rec_mat  FOREIGN KEY (material_id) REFERENCES materials(id) ON DELETE CASCADE
@@ -122,8 +122,8 @@ CREATE TABLE stock_logs (
   id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   item_type   ENUM('product','material') NOT NULL,
   item_id     INT UNSIGNED NOT NULL,
-  change_qty  DECIMAL(14,2) NOT NULL,
-  stock_after DECIMAL(14,2) NOT NULL,
+  change_qty  DECIMAL(20,2) NOT NULL,
+  stock_after DECIMAL(20,2) NOT NULL,
   reason      ENUM('masuk','penjualan','opname','koreksi') NOT NULL,
   note        VARCHAR(200) NULL,
   unit_price  BIGINT       NULL COMMENT 'harga beli per kemasan saat stok masuk',
@@ -176,6 +176,7 @@ CREATE TABLE transactions (
   no              VARCHAR(30)  NOT NULL UNIQUE,
   queue_no        INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'nomor antrian harian',
   customer_name   VARCHAR(60)  NULL,
+  customer_phone  VARCHAR(20)  NULL COMMENT 'no. WhatsApp pelanggan (628xx) untuk kirim struk',
   order_type      VARCHAR(20)  NOT NULL DEFAULT 'Take Away',
   table_no        VARCHAR(10)  NULL,
   user_id         INT UNSIGNED NOT NULL,
@@ -206,7 +207,7 @@ CREATE TABLE transaction_items (
   product_id INT UNSIGNED NULL,
   name       VARCHAR(120) NOT NULL,
   category   VARCHAR(60)  NULL,
-  qty        INT UNSIGNED NOT NULL,
+  qty        BIGINT UNSIGNED NOT NULL,
   price      BIGINT       NOT NULL,
   disc       BIGINT       NOT NULL DEFAULT 0 COMMENT 'diskon per unit',
   dname      VARCHAR(120) NULL,
@@ -246,7 +247,7 @@ INSERT INTO settings (k, v) VALUES
   ('show_address', '1'), ('show_phone', '1'), ('show_no', '1'), ('show_date', '1'), ('show_shift', '1'),
   ('show_cashier', '1'), ('show_queue', '1'), ('show_customer', '1'), ('show_order_type', '1'),
   ('show_item_disc', '1'), ('show_payment', '1'), ('feed_lines', '3'), ('auto_cut', '1'), ('auto_print', '1'),
-  ('require_customer', '1'), ('target_margin', '60');
+  ('require_customer', '1'), ('target_margin', '60'), ('schema_v', '2');
 
 INSERT INTO categories (id, name, sort_order) VALUES
   (1, 'Kopi', 1), (2, 'Non Kopi', 2), (3, 'Makanan Berat', 3), (4, 'Makanan Ringan', 4);

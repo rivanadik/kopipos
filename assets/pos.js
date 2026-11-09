@@ -50,21 +50,21 @@
     const c = st.cart.find(x => x.id === id);
     const want = (c ? c.qty : 0) + 1;
     const left = stockLeft(id);
-    if (want > left) { toast(left <= 0 ? 'Stok produk ini habis' : 'Stok tinggal ' + left, true); return; }
+    if (want > left) { toast(left <= 0 ? 'Stok produk ini habis' : 'Stok tinggal ' + left.toLocaleString('id-ID'), true); return; }
     if (c) c.qty++; else st.cart.push({id, qty: 1});
     paintBadges(); recalc();
   }
   function change(id, d) {
     const c = st.cart.find(x => x.id === id);
     if (!c) return;
-    if (d > 0 && c.qty + d > stockLeft(id)) { toast('Stok tinggal ' + stockLeft(id), true); return; }
+    if (d > 0 && c.qty + d > stockLeft(id)) { toast('Stok tinggal ' + stockLeft(id).toLocaleString('id-ID'), true); return; }
     c.qty += d;
     if (c.qty <= 0) st.cart = st.cart.filter(x => x.id !== id);
     paintBadges(); recalc();
   }
   function reset() {
     st.cart = []; st.coupon = ''; st.last = null;
-    $('paid').value = ''; $('cpn').value = ''; $('custName').value = ''; $('tableNo').value = ''; msg('');
+    $('paid').value = ''; $('cpn').value = ''; $('custName').value = ''; $('tableNo').value = ''; $('custPhone').value = ''; msg('');
     paintBadges(); render();
   }
 
@@ -137,7 +137,7 @@
     try {
       const p = await post('api/checkout.php', {
         cart: st.cart, coupon: st.coupon, method: st.method, paid: Number($('paid').value) || 0,
-        customer: $('custName').value.trim(), orderType: st.orderType,
+        customer: $('custName').value.trim(), phone: $('custPhone').value.trim(), orderType: st.orderType,
         tableNo: st.orderType === 'Dine In' ? $('tableNo').value.trim() : ''
       });
       applyStocks(p.stocks || {});
@@ -163,7 +163,7 @@
       let chip = el.querySelector('.pstock');
       if (!chip) { chip = document.createElement('em'); el.querySelector('.pimg').appendChild(chip); }
       chip.className = 'pstock' + (v <= 0 ? ' out' : v <= min ? ' low' : '');
-      chip.textContent = v <= 0 ? 'Habis' : v <= min ? 'Sisa ' + v : 'Stok ' + v;
+      chip.textContent = v <= 0 ? 'Habis' : v <= min ? 'Sisa ' + v.toLocaleString('id-ID') : 'Stok ' + v.toLocaleString('id-ID');
       el.classList.toggle('sold-out', v <= 0);
     });
   }

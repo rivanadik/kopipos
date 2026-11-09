@@ -66,8 +66,8 @@ function trend_html(?float $p): string
   <div class="alert warn alert-list">
     <b>⚠ Peringatan stok</b>
     <ul>
-      <?php foreach (array_slice($low['products'], 0, 4) as $p): ?><li><?= e($p['name']) ?> tinggal <b><?= (int)$p['stock'] ?> porsi</b></li><?php endforeach; ?>
-      <?php foreach (array_slice($low['recipe'], 0, 3) as $p): ?><li><?= e($p['name']) ?>: bahan cukup untuk <b>± <?= (int)$p['stock'] ?> porsi</b></li><?php endforeach; ?>
+      <?php foreach (array_slice($low['products'], 0, 4) as $p): ?><li><?= e($p['name']) ?> tinggal <b><?= num($p['stock']) ?> porsi</b></li><?php endforeach; ?>
+      <?php foreach (array_slice($low['recipe'], 0, 3) as $p): ?><li><?= e($p['name']) ?>: bahan cukup untuk <b>± <?= num($p['stock']) ?> porsi</b></li><?php endforeach; ?>
       <?php foreach (array_slice($low['materials'], 0, 4) as $m): ?><li><?= e($m['name']) ?> tinggal <b><?= num($m['stock']) ?> <?= e($m['unit']) ?></b></li><?php endforeach; ?>
     </ul>
     <a href="index.php?page=stok">Buka Stok Opname &rarr;</a>

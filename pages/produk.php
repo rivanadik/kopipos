@@ -36,8 +36,8 @@ $cfg = [
             return '<span class="badge ' . ($m >= 50 ? 'b-on' : ($m >= 30 ? 'b-warn' : 'b-bad')) . '">' . pct($m) . '</span>';
         }, true],
         ['Stok', function ($r) use ($avail) {
-            if ($r['track_stock']) return '<b>' . (int)$r['stock'] . '</b> porsi ' . stock_badge((float)$r['stock'], (float)$r['min_stock']);
-            if (isset($avail[(int)$r['id']])) return '± ' . $avail[(int)$r['id']] . ' porsi <span class="muted sm">(dari bahan)</span>';
+            if ($r['track_stock']) return '<b>' . num($r['stock']) . '</b> porsi ' . stock_badge((float)$r['stock'], (float)$r['min_stock']);
+            if (isset($avail[(int)$r['id']])) return '± ' . num($avail[(int)$r['id']]) . ' porsi <span class="muted sm">(dari bahan)</span>';
             return '<span class="muted">Tidak dihitung</span>';
         }],
         ['Status', fn($r) => badge_html($r['active'])],

@@ -11,17 +11,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'masuk
     if (!$m) { flash_set('Bahan tidak ditemukan', 'err'); redirect('index.php?page=bahan'); }
     $qty = $packs * (float)$m['pack_size'] + $extra;
     if ($qty <= 0) { flash_set('Isi jumlah kemasan atau jumlah satuan', 'err'); redirect('index.php?page=bahan&masuk=' . $m['id']); }
-    $pdo = db();
-    $pdo->beginTransaction();
-    $cur = (float)q("SELECT stock FROM materials WHERE id=? FOR UPDATE", [$m['id']])->fetchColumn();
-    $after = $cur + $qty;
-    if ($price > 0 && $price !== (int)$m['price']) {
-        q("UPDATE materials SET stock=?, price_old=price, price=? WHERE id=?", [$after, $price, $m['id']]);
-    } else {
-        q("UPDATE materials SET stock=? WHERE id=?", [$after, $m['id']]);
+    foreach ([['Jumlah kemasan', $packs], ['Tambahan satuan', $extra], ['Harga beli', (float)($_POST['price'] ?? 0)], ['Jumlah masuk', $qty]] as [$lbl, $val]) {
+        if (num_too_big($val)) { flash_set(num_limit_msg($lbl), 'err'); redirect('index.php?page=bahan&masuk=' . $m['id']); }
     }
-    stock_log('material', (int)$m['id'], $qty, $after, 'masuk', trim((string)($_POST['note'] ?? '')), null, $price > 0 ? $price : (int)$m['price']);
-    $pdo->commit();
+    $pdo = db();
+    try {
+        $pdo->beginTransaction();
+        $cur = (float)q("SELECT stock FROM materials WHERE id=? FOR UPDATE", [$m['id']])->fetchColumn();
+        $after = $cur + $qty;
+        if (num_too_big($after)) {
+            $pdo->rollBack();
+            flash_set(num_limit_msg('Stok akhir'), 'err');
+            redirect('index.php?page=bahan&masuk=' . $m['id']);
+        }
+        if ($price > 0 && $price !== (int)$m['price']) {
+            q("UPDATE materials SET stock=?, price_old=price, price=? WHERE id=?", [$after, $price, $m['id']]);
+        } else {
+            q("UPDATE materials SET stock=? WHERE id=?", [$after, $m['id']]);
+        }
+        stock_log('material', (int)$m['id'], $qty, $after, 'masuk', trim((string)($_POST['note'] ?? '')), null, $price > 0 ? $price : (int)$m['price']);
+        $pdo->commit();
+    } catch (PDOException $ex) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('bahan masuk: ' . $ex->getMessage());
+        flash_set('Stok masuk gagal disimpan. Cek angka tidak terlalu besar dan database sudah dimigrasi.', 'err');
+        redirect('index.php?page=bahan&masuk=' . $m['id']);
+    }
     flash_set('Stok masuk ' . num($qty) . ' ' . $m['unit'] . ' ' . $m['name'] . ' tercatat. Sisa stok ' . num($after) . ' ' . $m['unit']);
     redirect('index.php?page=bahan');
 }
@@ -63,11 +78,20 @@ $cfg = [
         ['unit', 'Satuan', 'select', $units, 'gram'],
         ['pack_size', 'Isi per kemasan beli (dalam satuan)', 'dec', null, 1000, true],
         ['price', 'Harga beli per kemasan (Rp)', 'int', null, '', true],
+        ['stock', 'Stok saat ini (dalam satuan)', 'dec', null, 0],
+        ['stock_seen', '', 'hidden', null, 0],
         ['min_stock', 'Batas stok menipis (dalam satuan)', 'dec', null, 0],
         ['active', 'Aktif', 'check'],
     ],
     'before_save' => function (array $d, int $id) {
         if ($d['pack_size'] <= 0) return 'Isi per kemasan harus lebih dari 0';
+        if ($d['min_stock'] < 0) return 'Batas stok menipis tidak boleh minus';
+        // Stok hanya ditimpa jika admin benar-benar mengubah kolomnya. Jika tidak, stok di database
+        // dibiarkan (penjualan yang terjadi saat form terbuka tidak tertimpa nilai lama).
+        $seen = (float)($d['stock_seen'] ?? 0);
+        unset($d['stock_seen']);
+        if ($id && abs($d['stock'] - $seen) < 0.005) unset($d['stock']);   // tidak diubah (boleh saja sedang minus akibat penjualan)
+        elseif ($d['stock'] < 0) return 'Stok tidak boleh minus';
         if ($id) {
             $old = q("SELECT price FROM materials WHERE id=?", [$id])->fetchColumn();
             if ((int)$old !== (int)$d['price']) $d['price_old'] = (int)$old;
@@ -75,6 +99,27 @@ $cfg = [
             $d['price_old'] = $d['price'];
         }
         return $d;
+    },
+    'after_save' => function (array $d, int $id, ?array $old) {
+        if (!isset($d['stock'])) return;
+        if ($old === null) {
+            if ((float)$d['stock'] > 0) stock_log('material', $id, (float)$d['stock'], (float)$d['stock'], 'masuk', 'Stok awal saat bahan dibuat');
+            return;
+        }
+        $chg = (float)$d['stock'] - (float)$old['stock'];
+        if (abs($chg) > 0.0001) {
+            stock_log('material', $id, $chg, (float)$d['stock'], 'koreksi', 'Diubah lewat edit bahan: ' . num($old['stock']) . ' → ' . num($d['stock']));
+        }
+    },
+    'confirm_edit' => true,
+    'delete_confirm' => function (array $r) {
+        $n = (int)q("SELECT COUNT(*) FROM recipes WHERE material_id=?", [(int)$r['id']])->fetchColumn();
+        return 'Yakin HAPUS bahan "' . $r['name'] . '"?' . "\n\n"
+            . '• Isi per kemasan: ' . num($r['pack_size']) . ' ' . $r['unit'] . "\n"
+            . '• Harga beli: ' . rp($r['price']) . "\n"
+            . '• Stok saat ini: ' . num($r['stock']) . ' ' . $r['unit'] . "\n"
+            . ($n > 0 ? "\nPERHATIAN: bahan ini dipakai di $n resep. Bahan akan ikut hilang dari resep tersebut dan HPP produknya berubah.\n" : '')
+            . "\nData tidak bisa dikembalikan. Jika hanya ingin menyembunyikan, pilih Ubah lalu hilangkan centang Aktif.";
     },
     'row_actions' => fn($r) => '<a class="btn btn-sm btn-ok" href="index.php?page=bahan&masuk=' . (int)$r['id'] . '">+ Stok Masuk</a> ',
     'cols' => [

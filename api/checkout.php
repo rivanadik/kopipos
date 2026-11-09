@@ -13,6 +13,11 @@ $orderType = ($in['orderType'] ?? '') === 'Take Away' ? 'Take Away' : 'Dine In';
 $customer = mb_substr(trim((string)($in['customer'] ?? '')), 0, 60);
 $tableNo = $orderType === 'Dine In' ? mb_substr(trim((string)($in['tableNo'] ?? '')), 0, 10) : '';
 if ($customer === '' && setting('require_customer', '1') === '1') json_out(['error' => 'Nama pelanggan wajib diisi'], 400);
+// Nomor WhatsApp pelanggan (opsional) untuk kirim struk digital
+$phoneRaw = trim((string)($in['phone'] ?? ''));
+$phone = wa_normalize($phoneRaw);
+if ($phoneRaw !== '' && $phone === '') json_out(['error' => 'Nomor WhatsApp tidak valid (contoh: 0812xxxxxxx)'], 400);
+if (num_too_big((float)($in['paid'] ?? 0))) json_out(['error' => num_limit_msg('Uang diterima')], 400);
 
 $pdo = db();
 try {
@@ -48,6 +53,7 @@ try {
     $id = (int)$pdo->lastInsertId();
     $no = date('ymd') . '-' . str_pad((string)$id, 5, '0', STR_PAD_LEFT);
     q("UPDATE transactions SET no=? WHERE id=?", [$no, $id]);
+    if ($phone !== '' && trx_has_phone()) q("UPDATE transactions SET customer_phone=? WHERE id=?", [$phone, $id]);
 
     $stocks = [];
     $matUse = [];
